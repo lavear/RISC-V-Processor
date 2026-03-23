@@ -1,0 +1,11 @@
+# ModelSim / QuestaSim
+work/
+*.wlf
+*.qdb
+transcript
+vsim_stacktrace.vstf
+
+# General
+*.log
+*.tmp
+*.out
