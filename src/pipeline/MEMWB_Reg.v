@@ -1,5 +1,5 @@
-module MEMWB_Reg(clk, rst, RegWrite_in, MemtoReg_in, Rd_in, ALU_Result_in, MemData_in, RegWrite_out, MemtoReg_out, Rd_out, ALU_Result_out, MemData_out);
-input clk, rst;
+module MEMWB_Reg(clk, rst, stall_all, RegWrite_in, MemtoReg_in, Rd_in, ALU_Result_in, MemData_in, RegWrite_out, MemtoReg_out, Rd_out, ALU_Result_out, MemData_out);
+input clk, rst, stall_all;
 input RegWrite_in, MemtoReg_in;
 input [4:0] Rd_in;
 input [31:0] ALU_Result_in, MemData_in;
@@ -12,7 +12,7 @@ always @(posedge clk or posedge rst) begin
     Rd_out<=5'b0;
     ALU_Result_out<=32'b0; MemData_out<=32'b0;
   end
-  else begin
+  else if (!stall_all) begin
     RegWrite_out<=RegWrite_in; MemtoReg_out<=MemtoReg_in;
     Rd_out<=Rd_in;
     ALU_Result_out<=ALU_Result_in; MemData_out<=MemData_in;

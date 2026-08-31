@@ -8,7 +8,7 @@ initial begin
     #12;
     rst = 0;
     #400;
-    $stop;
+    $finish;
 end
 
 always begin

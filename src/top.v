@@ -26,16 +26,22 @@ wire [4:0] Rd_MEM;
 wire [31:0] Sum_MEM, ALU_Result_MEM, Rd2_MEM, MemData_MEM;
 wire sel2_MEM;
 
+wire stall_all;
+wire axi_stall;
+wire [31:0] axi_araddr, axi_rdata, axi_awaddr, axi_wdata;
+wire axi_arvalid, axi_arready, axi_rvalid, axi_rready, axi_awvalid, axi_awready, axi_wvalid, axi_wready, axi_bvalid, axi_bready;
+wire [3:0] axi_wstrb;
+
 wire RegWrite_WB, MemtoReg_WB;
 wire [4:0] Rd_WB;
 wire [31:0] ALU_Result_WB, MemData_WB, WriteBack_WB;
 
-Program_Counter PC(.clk(clk), .rst(rst), .PC_in(PCin_top), .PC_out(PC_IF));
+Program_Counter PC(.clk(clk), .rst(rst), .stall_all(stall_all), .PC_in(PCin_top), .PC_out(PC_IF));
 PC_increment PCA(.fromPC(PC_IF), .NextoPC(NextoPC_IF));
 Instruction_Mem IM(.rst(rst), .read_addr(PC_IF), .inst_out(inst_IF));
 
 IFID_Reg IFID1(
-  .clk(clk), .rst(rst), .flush(flush_top), .stall(stall_top),
+  .clk(clk), .rst(rst), .flush(flush_top), .stall(stall_top), .stall_all(stall_all),
   .PC_in(PC_IF), .inst_in(inst_IF),
   .PC_out(PC_ID), .inst_out(inst_ID)
 );
@@ -47,11 +53,11 @@ control_unit CU(.instruction(inst_ID[6:0]), .branch(branch_ID), .MemRead(MemRead
 Hazard_Unit HU(
   .Rs1_ID(inst_ID[19:15]), .Rs2_ID(inst_ID[24:20]), .Rd_EX(Rd_EX),
   .MemRead_EX(MemRead_EX), .branch_EX(branch_EX), .zero_EX(zero_EX),
-  .stall(stall_top), .flush(flush_top)
+  .AXI_STALL(axi_stall), .stall(stall_top), .flush(flush_top), .stall_all(stall_all)
 );
 
 IDEX_Reg IDEX1(
-  .clk(clk), .rst(rst), .flush(flush_top),
+  .clk(clk), .rst(rst), .flush(flush_top), .stall_all(stall_all),
   .RegWrite_in(RegWrite_ID), .MemtoReg_in(MemtoReg_ID), .branch_in(branch_ID), .MemRead_in(MemRead_ID), .MemWrite_in(MemWrite_ID), .ALUSrc_in(ALUSrc_ID), .func7b_in(inst_ID[30]), .ALUOp_in(ALUOp_ID), .func3_in(inst_ID[14:12]), .Rs1_in(inst_ID[19:15]), .Rs2_in(inst_ID[24:20]), .Rd_in(inst_ID[11:7]), .PC_in(PC_ID), .Rd1_in(Rd1_ID), .Rd2_in(Rd2_ID), .immext_in(immext_ID),
   .RegWrite_out(RegWrite_EX), .MemtoReg_out(MemtoReg_EX), .branch_out(branch_EX), .MemRead_out(MemRead_EX), .MemWrite_out(MemWrite_EX), .ALUSrc_out(ALUSrc_EX), .func7b_out(func7b_EX), .ALUOp_out(ALUOp_EX), .func3_out(func3_EX), .Rs1_out(Rs1_EX), .Rs2_out(Rs2_EX), .Rd_out(Rd_EX), .PC_out(PC_EX), .Rd1_out(Rd1_EX), .Rd2_out(Rd2_EX), .immext_out(immext_EX)
 );
@@ -70,17 +76,37 @@ ALU_unit ALUU(.A(fwdA_EX), .B(muxB_EX), .Control_in(control_EX), .ALU_Result(ALU
 adder_logic AD1(.in1(PC_EX), .in2(immext_EX), .sum_out(Sum_EX));
 
 EXMEM_Reg EXMEM1(
-  .clk(clk), .rst(rst),
+  .clk(clk), .rst(rst), .stall_all(stall_all),
   .RegWrite_in(RegWrite_EX), .MemtoReg_in(MemtoReg_EX), .branch_in(branch_EX), .MemRead_in(MemRead_EX), .MemWrite_in(MemWrite_EX), .zero_in(zero_EX), .Rd_in(Rd_EX), .Sum_in(Sum_EX), .ALU_Result_in(ALU_Result_EX), .Rd2_in(fwdB_EX),
   .RegWrite_out(RegWrite_MEM), .MemtoReg_out(MemtoReg_MEM), .branch_out(branch_MEM), .MemRead_out(MemRead_MEM), .MemWrite_out(MemWrite_MEM), .zero_out(zero_MEM), .Rd_out(Rd_MEM), .Sum_out(Sum_MEM), .ALU_Result_out(ALU_Result_MEM), .Rd2_out(Rd2_MEM)
 );
 
 AND_logic AND1(.branch(branch_MEM), .zero(zero_MEM), .and_out(sel2_MEM));
 Mux Mux2(.sel(sel2_MEM), .A(NextoPC_IF), .B(Sum_MEM), .Mux_out(PCin_top));
-Data_Memory DM(.clk(clk), .rst(rst), .MemWrite(MemWrite_MEM), .MemRead(MemRead_MEM), .address(ALU_Result_MEM), .Write_data(Rd2_MEM), .MemData_out(MemData_MEM));
+
+MEM_Stage_AXI MEM_AXI(
+  .clk(clk), .reset(rst),
+  .MemRead(MemRead_MEM), .MemWrite(MemWrite_MEM),
+  .ALU_Result(ALU_Result_MEM), .Rs2_Data(Rd2_MEM),
+  .Read_Data(MemData_MEM), .AXI_STALL(axi_stall),
+  .araddr(axi_araddr), .arvalid(axi_arvalid), .arready(axi_arready),
+  .rdata(axi_rdata), .rvalid(axi_rvalid), .rready(axi_rready),
+  .awaddr(axi_awaddr), .awvalid(axi_awvalid), .awready(axi_awready),
+  .wdata(axi_wdata), .wstrb(axi_wstrb), .wvalid(axi_wvalid), .wready(axi_wready),
+  .bvalid(axi_bvalid), .bready(axi_bready)
+);
+
+Data_Memory DM(
+  .clk(clk), .rst(rst),
+  .araddr(axi_araddr), .arvalid(axi_arvalid), .arready(axi_arready),
+  .rdata(axi_rdata), .rvalid(axi_rvalid), .rready(axi_rready),
+  .awaddr(axi_awaddr), .awvalid(axi_awvalid), .awready(axi_awready),
+  .wdata(axi_wdata), .wstrb(axi_wstrb), .wvalid(axi_wvalid), .wready(axi_wready),
+  .bvalid(axi_bvalid), .bready(axi_bready)
+);
 
 MEMWB_Reg MEMWB1(
-  .clk(clk), .rst(rst),
+  .clk(clk), .rst(rst), .stall_all(stall_all),
   .RegWrite_in(RegWrite_MEM), .MemtoReg_in(MemtoReg_MEM), .Rd_in(Rd_MEM), .ALU_Result_in(ALU_Result_MEM), .MemData_in(MemData_MEM),
   .RegWrite_out(RegWrite_WB), .MemtoReg_out(MemtoReg_WB), .Rd_out(Rd_WB), .ALU_Result_out(ALU_Result_WB), .MemData_out(MemData_WB)
 );
